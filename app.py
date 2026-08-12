@@ -1228,6 +1228,20 @@ def api_update_campaign(campaign_id):
     return jsonify({'success': True, 'campaign': campaign})
 
 
+@app.route('/api/campaigns/<int:campaign_id>', methods=['DELETE'])
+def api_delete_campaign(campaign_id):
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = get_crm().delete_campaign(
+            campaign_id, payload.get('confirmation')
+        )
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+    if not result:
+        return jsonify({'error': 'Campaign not found'}), 404
+    return jsonify({'success': True, **result})
+
+
 @app.route('/api/imports')
 def api_import_operations():
     repository = get_crm()

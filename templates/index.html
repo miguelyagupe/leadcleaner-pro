@@ -271,6 +271,7 @@
       .recent-panel { grid-column: 1; overflow-x:auto; }
       .command-submit { display:none; }
     }
+  .campaign-controls{display:flex;align-items:center;gap:7px}.campaign-action{background:#17181b;color:#d8bd79;border:1px solid #393329;border-radius:5px;padding:8px 10px;cursor:pointer;font:inherit}.campaign-action:hover{border-color:#b99a52}.campaign-action.danger{color:#ef9a9a;border-color:#573232}.campaign-action[hidden]{display:none}
   </style>
 </head>
 <body>
@@ -312,7 +313,7 @@
     <main>
       <header class="topbar">
         <div class="workspace-label">Tulsa County <span>/</span> Acquisition Intelligence</div>
-        <div class="status-set"><select id="campaign-filter" style="background:#111214;color:#d8bd79;border:1px solid #292a2f;padding:8px"><option value="">All campaigns</option></select><div class="status-live">System operational</div><button class="top-icon" aria-label="Notifications"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg></button></div>
+        <div class="status-set"><div class="campaign-controls"><select id="campaign-filter" aria-label="Active campaign" style="background:#111214;color:#d8bd79;border:1px solid #292a2f;padding:8px"><option value="">All campaigns</option></select><button id="campaign-archive" class="campaign-action" type="button" hidden>Archive</button><button id="campaign-delete" class="campaign-action danger" type="button" hidden>Delete campaign</button></div><div class="status-live">System operational</div><button class="top-icon" aria-label="Notifications"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg></button></div>
       </header>
 
       <div class="content">
@@ -732,8 +733,43 @@
     $('command-form').addEventListener('submit', event => { event.preventDefault(); runCommand($('command-input').value); });
     document.querySelectorAll('[data-command]').forEach(button => button.addEventListener('click', () => { $('command-input').value = button.dataset.command; runCommand(button.dataset.command); }));
     document.addEventListener('keydown', event => { if (event.key === 'Escape') closeImport(); });
-    async function loadCampaigns(){const response=await fetch('/api/campaigns'),data=await response.json();$('campaign-filter').innerHTML='<option value="">All campaigns</option>'+data.campaigns.map(item=>`<option value="${item.id}">${esc(item.name)} · ${nf.format(item.lead_count)}</option>`).join('')}
-    $('campaign-filter').addEventListener('change',loadDashboard);
+    let campaigns=[];
+    function selectedCampaign(){return campaigns.find(item=>String(item.id)===$('campaign-filter').value)}
+    function syncCampaignActions(){
+      const campaign=selectedCampaign();
+      $('campaign-archive').hidden=!campaign;
+      $('campaign-delete').hidden=!campaign;
+      if(campaign)$('campaign-archive').textContent=campaign.status==='archived'?'Restore':'Archive';
+    }
+    async function loadCampaigns(preferred){
+      const current=preferred===undefined?$('campaign-filter').value:String(preferred||'');
+      const response=await fetch('/api/campaigns'),data=await response.json();
+      campaigns=data.campaigns||[];
+      $('campaign-filter').innerHTML='<option value="">All campaigns</option>'+campaigns.map(item=>`<option value="${item.id}">${esc(item.name)} · ${nf.format(item.lead_count)}${item.status==='archived'?' · Archived':''}</option>`).join('');
+      const available=campaigns.some(item=>String(item.id)===current);
+      $('campaign-filter').value=available?current:String((campaigns.find(item=>item.status==='active')||{}).id||'');
+      syncCampaignActions();
+    }
+    async function setCampaignStatus(){
+      const campaign=selectedCampaign();if(!campaign)return;
+      const status=campaign.status==='archived'?'active':'archived';
+      const response=await fetch(`/api/campaigns/${campaign.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+      const data=await response.json();if(!response.ok){showToast(data.error||'Campaign could not be updated.');return}
+      showToast(status==='archived'?'Campaign archived.':'Campaign restored.');
+      await loadCampaigns(campaign.id);await loadDashboard();
+    }
+    async function deleteSelectedCampaign(){
+      const campaign=selectedCampaign();if(!campaign)return;
+      const confirmation=window.prompt(`This permanently removes ${nf.format(campaign.lead_count)} leads and their CRM activity. The original import file and processing history stay available. Type the campaign name to continue:\n\n${campaign.name}`);
+      if(confirmation===null)return;
+      const response=await fetch(`/api/campaigns/${campaign.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})});
+      const data=await response.json();if(!response.ok){showToast(data.error||'Campaign could not be deleted.');return}
+      showToast(`${nf.format(data.deleted_leads)} leads deleted. Import history preserved.`);
+      await loadCampaigns('');await loadDashboard();
+    }
+    $('campaign-filter').addEventListener('change',()=>{syncCampaignActions();loadDashboard()});
+    $('campaign-archive').addEventListener('click',setCampaignStatus);
+    $('campaign-delete').addEventListener('click',deleteSelectedCampaign);
     loadCampaigns().then(loadDashboard);
     loadAlertCount();
     const resumeId = new URLSearchParams(window.location.search).get('resume');

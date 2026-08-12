@@ -1025,6 +1025,61 @@ class CRMTest(unittest.TestCase):
         self.assertEqual(archived['status'], 'archived')
         self.assertEqual(len(self.repository.list_campaigns(include_archived=False)), 1)
 
+    def test_campaign_can_be_archived_restored_and_safely_deleted(self):
+        campaign = self.repository.list_campaigns()[0]
+        lead_id = self.repository.list_leads(
+            campaign_id=campaign['id']
+        )['items'][0]['id']
+        self.client.post(
+            f'/api/leads/{lead_id}/contacts',
+            json={
+                'kind': 'phone',
+                'value': '9185550111',
+                'source_name': 'Test source',
+            },
+        )
+
+        archived = self.client.patch(
+            f"/api/campaigns/{campaign['id']}",
+            json={'status': 'archived'},
+        )
+        restored = self.client.patch(
+            f"/api/campaigns/{campaign['id']}",
+            json={'status': 'active'},
+        )
+        refused = self.client.delete(
+            f"/api/campaigns/{campaign['id']}",
+            json={'confirmation': 'wrong name'},
+        )
+        deleted = self.client.delete(
+            f"/api/campaigns/{campaign['id']}",
+            json={'confirmation': campaign['name']},
+        )
+
+        self.assertEqual(archived.status_code, 200)
+        self.assertEqual(archived.get_json()['campaign']['status'], 'archived')
+        self.assertEqual(restored.get_json()['campaign']['status'], 'active')
+        self.assertEqual(refused.status_code, 400)
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.get_json()['deleted_leads'], 2)
+        self.assertTrue(deleted.get_json()['processing_history_preserved'])
+        self.assertEqual(self.repository.list_leads()['total'], 0)
+        self.assertEqual(self.repository.list_campaigns(), [])
+
+        recreated = self.repository.import_leads(
+            self.dataframe, self.job, self.columns
+        )
+        self.assertEqual(recreated, 2)
+        self.assertEqual(len(self.repository.list_campaigns()), 1)
+
+    def test_dashboard_exposes_campaign_management_controls(self):
+        page = self.client.get('/')
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b'campaign-archive', page.data)
+        self.assertIn(b'Delete campaign', page.data)
+        self.assertIn(b"method:'DELETE'", page.data)
+
     def test_contact_ledger_preserves_sources_and_controls_primary_status(self):
         lead_id = self.repository.list_leads()['items'][0]['id']
         first = self.client.post(

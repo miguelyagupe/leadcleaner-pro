@@ -22,6 +22,7 @@ from sqlalchemy import (
     UniqueConstraint,
     case,
     create_engine,
+    delete,
     func,
     or_,
     select,
@@ -1295,6 +1296,67 @@ class CRMRepository:
         return next(
             item for item in self.list_campaigns() if item['id'] == int(campaign_id)
         )
+
+    def delete_campaign(self, campaign_id, confirmation):
+        try:
+            campaign_id = int(campaign_id)
+        except (TypeError, ValueError) as error:
+            raise ValueError('Invalid campaign') from error
+        confirmation = str(confirmation or '').strip()
+        with self.Session.begin() as session:
+            campaign = session.get(Campaign, campaign_id)
+            if not campaign:
+                return None
+            if confirmation != campaign.name:
+                raise ValueError('Type the campaign name exactly to delete it')
+            active_batch = session.scalar(
+                select(EnrichmentBatch.id).where(
+                    EnrichmentBatch.campaign_id == campaign_id,
+                    EnrichmentBatch.status.in_(('running', 'processing')),
+                )
+            )
+            if active_batch:
+                raise ValueError(
+                    'This campaign has a skip trace in progress and cannot be deleted'
+                )
+            lead_ids = select(Lead.id).where(
+                Lead.source_job_id == campaign.source_job_id
+            )
+            lead_count = session.scalar(
+                select(func.count()).select_from(Lead).where(
+                    Lead.source_job_id == campaign.source_job_id
+                )
+            ) or 0
+            for model in (
+                LeadNote,
+                LeadActivity,
+                CallLog,
+                ResearchEvidence,
+                ProbateContact,
+                ContactPoint,
+            ):
+                session.execute(
+                    delete(model).where(model.lead_id.in_(lead_ids)),
+                    execution_options={'synchronize_session': False},
+                )
+            session.execute(
+                delete(Lead).where(
+                    Lead.source_job_id == campaign.source_job_id
+                ),
+                execution_options={'synchronize_session': False},
+            )
+            session.execute(
+                delete(EnrichmentBatch).where(
+                    EnrichmentBatch.campaign_id == campaign_id
+                ),
+                execution_options={'synchronize_session': False},
+            )
+            session.delete(campaign)
+        return {
+            'campaign_id': campaign_id,
+            'deleted_leads': int(lead_count),
+            'processing_history_preserved': True,
+        }
 
     def get_lead(self, lead_id):
         with self.Session() as session:
