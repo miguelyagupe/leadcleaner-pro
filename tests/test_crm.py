@@ -1079,6 +1079,9 @@ class CRMTest(unittest.TestCase):
         self.assertIn(b'campaign-archive', page.data)
         self.assertIn(b'Delete campaign', page.data)
         self.assertIn(b"method:'DELETE'", page.data)
+        self.assertIn(b'confirmation:campaign.name', page.data)
+        self.assertIn(b'Campaign deletion failed. Check the connection', page.data)
+        self.assertIn(b"button.textContent='Deleting", page.data)
 
     def test_contact_ledger_preserves_sources_and_controls_primary_status(self):
         lead_id = self.repository.list_leads()['items'][0]['id']
