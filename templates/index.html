@@ -762,10 +762,24 @@
       const campaign=selectedCampaign();if(!campaign)return;
       const confirmation=window.prompt(`This permanently removes ${nf.format(campaign.lead_count)} leads and their CRM activity. The original import file and processing history stay available. Type the campaign name to continue:\n\n${campaign.name}`);
       if(confirmation===null)return;
-      const response=await fetch(`/api/campaigns/${campaign.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation})});
-      const data=await response.json();if(!response.ok){showToast(data.error||'Campaign could not be deleted.');return}
-      showToast(`${nf.format(data.deleted_leads)} leads deleted. Import history preserved.`);
-      await loadCampaigns('');await loadDashboard();
+      if(confirmation.trim()!==campaign.name.trim()){
+        showToast('Campaign name does not match. Nothing was deleted.');
+        return;
+      }
+      const button=$('campaign-delete');
+      button.disabled=true;button.textContent='Deleting…';
+      try{
+        const response=await fetch(`/api/campaigns/${campaign.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmation:campaign.name})});
+        const contentType=response.headers.get('content-type')||'';
+        const data=contentType.includes('application/json')?await response.json():{};
+        if(!response.ok){showToast(data.error||`Campaign could not be deleted (${response.status}).`);return}
+        showToast(`${nf.format(data.deleted_leads)} leads deleted. Import history preserved.`);
+        await loadCampaigns('');await loadDashboard();
+      }catch(error){
+        showToast('Campaign deletion failed. Check the connection and try again.');
+      }finally{
+        button.disabled=false;button.textContent='Delete campaign';syncCampaignActions();
+      }
     }
     $('campaign-filter').addEventListener('change',()=>{syncCampaignActions();loadDashboard()});
     $('campaign-archive').addEventListener('click',setCampaignStatus);

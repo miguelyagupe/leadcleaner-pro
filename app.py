@@ -1237,6 +1237,11 @@ def api_delete_campaign(campaign_id):
         )
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
+    except Exception:
+        app.logger.exception('Campaign deletion failed for campaign %s', campaign_id)
+        return jsonify({
+            'error': 'Campaign deletion failed. No partial deletion was committed.'
+        }), 500
     if not result:
         return jsonify({'error': 'Campaign not found'}), 404
     return jsonify({'success': True, **result})
