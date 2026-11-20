@@ -1,4 +1,8 @@
-# LeadCleaner Pro — Setup Instructions
+# LeadCleaner Pro
+
+For a concise project summary, verified code evidence and sharing limits, see [PORTFOLIO.md](PORTFOLIO.md).
+
+## Setup instructions
 
 ## V1 release status
 
